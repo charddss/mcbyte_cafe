@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Coffee, Trash2, Clock, CheckCircle, Package, Truck } from 'lucide-react';
+import Swal from 'sweetalert2';
 import { supabase } from '../lib/supabaseclient';
 
-const History = ({ onBack, onReorder, onViewReceipt }) => {
+const History = ({ onBack, onViewReceipt }) => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -105,6 +106,108 @@ const History = ({ onBack, onReorder, onViewReceipt }) => {
     } catch (deleteError) {
       console.error('Unexpected error deleting order:', deleteError);
       alert('Unexpected error deleting order. Please try again.');
+    }
+  };
+
+  const handleReorder = async (order) => {
+    try {
+      setLoading(true);
+
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        alert('Please log in to reorder items.');
+        return;
+      }
+
+      const itemsTotal = (order.items || []).reduce(
+        (sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)),
+        0
+      );
+
+      let targetOrderId = null;
+
+      const { data: existingOrder, error: fetchError } = await supabase
+        .from('orders')
+        .select('id, total_price')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        throw fetchError;
+      }
+
+      if (existingOrder) {
+        targetOrderId = existingOrder.id;
+        const newTotal = (existingOrder.total_price || 0) + itemsTotal;
+
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ total_price: newTotal })
+          .eq('id', targetOrderId);
+
+        if (updateError) {
+          throw updateError;
+        }
+      } else {
+        const { data: newOrder, error: orderError } = await supabase
+          .from('orders')
+          .insert([
+            {
+              user_id: user.id,
+              total_price: itemsTotal,
+              status: 'pending',
+            },
+          ])
+          .select()
+          .single();
+
+        if (orderError) {
+          throw orderError;
+        }
+
+        targetOrderId = newOrder.id;
+      }
+
+      const itemsToInsert = (order.items || []).map((item) => ({
+        order_id: targetOrderId,
+        product_id: null,
+        product_name: item.product_name || item.name,
+        product_description: null,
+        product_image: item.product_image || item.image,
+        quantity: item.quantity ?? 1,
+        price: item.price || 0,
+        size: item.size || 'Regular',
+        ice_level: null,
+        sugar_level: null,
+        category: null,
+        special_request: null,
+      }));
+
+      if (itemsToInsert.length > 0) {
+        const { error: itemError } = await supabase
+          .from('order_items')
+          .insert(itemsToInsert);
+
+        if (itemError) {
+          throw itemError;
+        }
+      }
+
+      window.dispatchEvent(new Event('cartUpdated'));
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Reorder Successful',
+        text: 'Items have been added to your current order.',
+        confirmButtonColor: '#8B4513',
+      });
+    } catch (error) {
+      console.error('Error during reorder:', error);
+      alert('Failed to reorder items. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -236,7 +339,7 @@ const History = ({ onBack, onReorder, onViewReceipt }) => {
                   </button>
                   {order.status === 'completed' && (
                     <button
-                      onClick={() => onReorder && onReorder(order.items[0])}
+                      onClick={() => handleReorder(order)}
                       className="flex-1 bg-white border-2 border-orange-500 text-orange-600 py-2.5 rounded-xl font-semibold hover:bg-orange-500 hover:text-white transition-all text-sm"
                     >
                       Reorder
