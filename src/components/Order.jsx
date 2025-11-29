@@ -1,25 +1,31 @@
 import React, { useState } from 'react';
 import { ChevronLeft, Plus, Minus } from 'lucide-react';
+import { supabase } from '../lib/supabaseclient';
 
 const Order = ({ product, onBack, onAddToCart }) => {
   const [quantity, setQuantity] = useState(1);
   const [selectedSize, setSelectedSize] = useState('Regular');
   const [selectedIce, setSelectedIce] = useState('Normal');
   const [selectedSugar, setSelectedSugar] = useState('Normal');
-  
+  const [isLoading, setIsLoading] = useState(false);
+  const [specialRequest, setSpecialRequest] = useState('');
+
+  const category = product?.category || '';
+  const isDrink = category === 'Hot Drinks' || category === 'Cold Drinks';
+
   const sizeOptions = [
     { label: 'Venti', value: 'Venti', extra: 30 },
     { label: 'Grande', value: 'Grande', extra: 20 },
     { label: 'Regular', value: 'Regular', extra: 0 }
   ];
-  
+
   // Price is already in peso
   const basePrice = product?.price || 250;
-  
+
   // Get selected size extra cost
   const selectedSizeOption = sizeOptions.find(opt => opt.value === selectedSize);
   const sizeExtra = selectedSizeOption?.extra || 0;
-  
+
   // Calculate total price per item
   const pricePerItem = basePrice + sizeExtra;
   const totalPrice = pricePerItem * quantity;
@@ -39,19 +45,96 @@ const Order = ({ product, onBack, onAddToCart }) => {
     setQuantity(Math.max(1, quantity + change));
   };
 
-  const handleAddToCart = () => {
-    const orderItem = {
-      id: Date.now(),
-      name: product?.name || 'Cappuccino',
-      description: product?.description || 'Ice americano + fresh milk',
-      price: pricePerItem, // Price per item including size extra
-      quantity,
-      size: selectedSize,
-      ice: selectedIce,
-      sugar: selectedSugar,
-      image: product?.image || ''
-    };
-    onAddToCart(orderItem);
+  const handleAddToCart = async () => {
+    setIsLoading(true);
+    try {
+      // Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        alert('Please log in to place an order');
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if there's already a pending order
+      let orderId;
+      const { data: existingOrder, error: fetchError } = await supabase
+        .from('orders')
+        .select('id, total_price')
+        .eq('user_id', user.id)
+        .eq('status', 'pending')
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') {
+        // PGRST116 means no rows returned, which is fine
+        throw fetchError;
+      }
+
+      if (existingOrder) {
+        // Use existing pending order
+        orderId = existingOrder.id;
+
+        // Update the total price
+        const newTotalPrice = existingOrder.total_price + totalPrice;
+        const { error: updateError } = await supabase
+          .from('orders')
+          .update({ total_price: newTotalPrice })
+          .eq('id', orderId);
+
+        if (updateError) throw updateError;
+      } else {
+        // Create new order
+        const { data: orderData, error: orderError } = await supabase
+          .from('orders')
+          .insert([{
+            user_id: user.id,
+            total_price: totalPrice,
+            status: 'pending'
+          }])
+          .select()
+          .single();
+
+        if (orderError) throw orderError;
+        orderId = orderData.id;
+      }
+
+      // Create order item and get inserted row
+      const { data: insertedItems, error: itemError } = await supabase
+        .from('order_items')
+        .insert([{
+          order_id: orderId,
+          product_id: product?.id || null,
+          product_name: product?.name || 'Cappuccino',
+          product_description: product?.description || 'Ice americano + fresh milk',
+          product_image: product?.image || '',
+          quantity: quantity,
+          price: pricePerItem,
+          size: isDrink ? selectedSize : 'Regular',
+          ice_level: isDrink ? selectedIce : null,
+          sugar_level: isDrink ? selectedSugar : null,
+          category: product?.category || null,
+          special_request: !isDrink ? specialRequest : null
+        }])
+        .select();
+
+      if (itemError) throw itemError;
+      const insertedItem = Array.isArray(insertedItems) ? insertedItems[0] : insertedItems;
+
+      // Dispatch custom event for cart update
+      window.dispatchEvent(new Event('cartUpdated'));
+
+      // Also call the original onAddToCart for local cart state
+      if (onAddToCart && insertedItem) {
+        onAddToCart(insertedItem);
+      }
+
+    } catch (error) {
+      console.error('Error adding to cart:', error);
+      alert('Failed to add item to cart. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -62,20 +145,20 @@ const Order = ({ product, onBack, onAddToCart }) => {
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
         <div className="absolute bottom-0 left-0 w-48 h-48 bg-yellow-300/20 rounded-full blur-2xl"></div>
         <div className="relative">
-          <button 
-            onClick={onBack} 
+          <button
+            onClick={onBack}
             className="text-white hover:bg-white/20 p-2 rounded-xl transition-all duration-200 hover:scale-110 mb-6 shadow-lg"
           >
             <ChevronLeft size={24} />
           </button>
-          
+
           {/* Coffee Image Card */}
           <div className="relative">
             <div className="absolute -inset-1 bg-gradient-to-r from-yellow-300 via-orange-300 to-yellow-300 rounded-3xl blur opacity-75 animate-pulse"></div>
             <div className="relative bg-white rounded-3xl p-2 shadow-2xl">
               <div className="relative overflow-hidden rounded-2xl">
-                <img 
-                  src={product?.image || ""} 
+                <img
+                  src={product?.image || ""}
                   alt={product?.name || "Cappuccino"}
                   className="w-full aspect-[4/3] object-cover hover:scale-105 transition-transform duration-500"
                 />
@@ -120,7 +203,7 @@ const Order = ({ product, onBack, onAddToCart }) => {
           </div>
 
           <p className="text-white/95 text-base mb-4 leading-relaxed relative z-10 bg-white/15 backdrop-blur-sm px-4 py-3 rounded-xl border border-white/20">{product?.description || 'Ice americano + fresh milk'}</p>
-          
+
           {/* Features */}
           <div className="flex gap-3 relative z-10">
             <div className="flex-1 bg-gradient-to-br from-white/25 to-white/15 backdrop-blur-md p-3 rounded-xl border border-white/30 shadow-lg">
@@ -143,115 +226,139 @@ const Order = ({ product, onBack, onAddToCart }) => {
       </div>
 
       {/* Options Section */}
-      <div className="px-6 mt-6 space-y-5">
+      <div className="px-5 mt-4 space-y-4">
         {/* Customize Section */}
-        <div className="bg-white rounded-3xl p-5 shadow-xl border border-gray-100">
+        <div className="bg-white rounded-2xl p-4 shadow border border-gray-200">
           <h3 className="text-xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-            <span className="w-1 h-6 bg-gradient-to-b from-orange-500 to-yellow-500 rounded-full"></span>
+            <span className="w-1 h-6 bg-orange-500 rounded-full"></span>
             Customize Your Order
           </h3>
-          
-          {/* Size Options */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-semibold text-gray-700">Size</span>
-              {selectedSizeOption?.extra > 0 && (
-                <span className="text-xs text-orange-600 font-medium">+₱ {selectedSizeOption.extra.toLocaleString('en-US')}</span>
-              )}
-            </div>
-            <div className="flex gap-3">
-              {sizeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setSelectedSize(option.value)}
-                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 transform ${
-                    selectedSize === option.value
-                      ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white shadow-lg scale-105'
-                      : 'bg-gray-50 text-gray-700 border-2 border-gray-200 hover:border-orange-300 hover:bg-orange-50'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          {/* Ice Options */}
-          <div className="mb-5">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-semibold text-gray-700">Ice Level</span>
-            </div>
-            <div className="flex gap-3">
-              {iceOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setSelectedIce(option.value)}
-                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 transform ${
-                    selectedIce === option.value
-                      ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white shadow-lg scale-105'
-                      : 'bg-gray-50 text-gray-700 border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Size / Ice / Sugar for Drinks */}
+          {isDrink && (
+            <>
+              {/* Size Options */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-700">Size</span>
+                  {selectedSizeOption?.extra > 0 && (
+                    <span className="text-xs text-orange-600 font-medium">+₱ {selectedSizeOption.extra.toLocaleString('en-US')}</span>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  {sizeOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setSelectedSize(option.value)}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-colors duration-150 ${selectedSize === option.value
+                        ? 'bg-orange-500 text-white border border-orange-500'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:border-orange-400 hover:bg-orange-50'
+                        }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-          {/* Sugar Options */}
-          <div className="mb-2">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-semibold text-gray-700">Sugar Level</span>
+              {/* Ice Options */}
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-700">Ice Level</span>
+                </div>
+                <div className="flex gap-3">
+                  {iceOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setSelectedIce(option.value)}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-colors duration-150 ${selectedIce === option.value
+                        ? 'bg-blue-500 text-white border border-blue-500'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                        }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sugar Options */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-gray-700">Sugar Level</span>
+                </div>
+                <div className="flex gap-3">
+                  {sugarOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      onClick={() => setSelectedSugar(option.value)}
+                      className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-colors duration-150 ${selectedSugar === option.value
+                        ? 'bg-rose-500 text-white border border-rose-500'
+                        : 'bg-white text-gray-700 border border-gray-300 hover:border-rose-400 hover:bg-rose-50'
+                        }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Special instructions for Pastries / Meals */}
+          {!isDrink && (
+            <div className="mb-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-700">
+                  {category === 'Pastries' ? 'Pastry Instructions' : category === 'Meals' ? 'Meal Instructions' : 'Special Instructions'}
+                </span>
+              </div>
+              <textarea
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm text-gray-800 bg-white"
+                rows={3}
+                placeholder="Add your custom request (e.g. heat level, sauce on side, etc.)"
+                value={specialRequest}
+                onChange={(e) => setSpecialRequest(e.target.value)}
+              />
             </div>
-            <div className="flex gap-3">
-              {sugarOptions.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setSelectedSugar(option.value)}
-                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 transform ${
-                    selectedSugar === option.value
-                      ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg scale-105'
-                      : 'bg-gray-50 text-gray-700 border-2 border-gray-200 hover:border-pink-300 hover:bg-pink-50'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Quantity and Price */}
-        <div className="bg-gradient-to-br from-white to-gray-50 rounded-3xl p-5 shadow-2xl border-2 border-orange-100 flex items-center justify-between">
-          <div>
-            <span className="text-sm text-gray-500 block mb-1 font-medium">Total Amount</span>
-            <span className="text-3xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
+        <div className="bg-white rounded-2xl px-3 py-2 shadow border border-gray-200 flex items-center justify-between gap-2">
+          <div className="flex flex-col mr-2">
+            <span className="text-xs text-gray-500 block mb-0.5 font-medium">Total Amount</span>
+            <span className="text-2xl font-bold text-amber-900 whitespace-nowrap">
               ₱ {totalPrice.toLocaleString('en-US')}
             </span>
           </div>
-          
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-3 bg-gradient-to-r from-gray-100 to-gray-50 rounded-xl px-4 py-2.5 shadow-md border border-gray-200">
-              <button 
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="inline-flex items-center gap-2 bg-gray-50 rounded-lg px-3 h-10 shadow-sm border border-gray-300">
+              <button
                 onClick={() => handleQuantityChange(-1)}
                 className="text-gray-600 hover:text-gray-900 hover:scale-110 transition-transform p-1"
               >
-                <Minus size={20} />
+                <Minus size={18} />
               </button>
-              <span className="font-bold text-lg w-8 text-center text-gray-800">{quantity}</span>
-              <button 
+              <span className="font-bold text-base w-7 text-center text-gray-800">{quantity}</span>
+              <button
                 onClick={() => handleQuantityChange(1)}
                 className="text-gray-600 hover:text-gray-900 hover:scale-110 transition-transform p-1"
               >
-                <Plus size={20} />
+                <Plus size={18} />
               </button>
             </div>
-            
-            <button 
+
+            <button
               onClick={handleAddToCart}
-              className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-8 py-3.5 rounded-xl font-bold hover:from-gray-800 hover:to-gray-700 transition-all duration-200 shadow-xl hover:shadow-2xl hover:scale-105 transform"
+              disabled={isLoading}
+              className={`flex items-center justify-center h-10 bg-amber-800 text-white text-xs sm:text-sm px-3 sm:px-4 rounded-lg font-semibold transition-colors duration-150 shadow-sm ${isLoading
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:bg-amber-900'
+                }`}
             >
-              Add to Cart
+              {isLoading ? 'Adding...' : 'Add to Cart'}
             </button>
           </div>
         </div>

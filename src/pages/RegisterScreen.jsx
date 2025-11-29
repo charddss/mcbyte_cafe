@@ -106,17 +106,12 @@ const RegisterScreen = ({ onLogin, onRegisterSuccess }) => {
         return;
       }
 
-      setSuccess('Account created successfully! Redirecting...');
+      setSuccess('Account created successfully! Please verify your email, then log in. Redirecting to login...');
       setTimeout(() => {
         setIsLoading(false);
-        onRegisterSuccess({
-          id: userData.id,
-          email: userData.email,
-          fullName: userData.full_name,
-          role: userData.role,
-          customerId: userData.customer_id,
-          permissions: userData.permissions
-        });
+        // After registration we send the user back to the login screen so they can sign in
+        // (same behavior expected for admin/staff registrations handled elsewhere)
+        onLogin();
       }, 1500);
 
     } catch (err) {
