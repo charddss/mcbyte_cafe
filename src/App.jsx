@@ -91,7 +91,8 @@ function App() {
         .from('orders')
         .select('id')
         .eq('user_id', user.id)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .neq('is_reorder', true);
 
       if (ordersError) {
         console.error('Error fetching pending orders for cart:', ordersError);

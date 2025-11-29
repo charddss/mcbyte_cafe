@@ -125,50 +125,26 @@ const History = ({ onBack, onViewReceipt }) => {
         0
       );
 
-      let targetOrderId = null;
-
-      const { data: existingOrder, error: fetchError } = await supabase
+      // Create a new order marked as 'pending' but flagged as a reorder so
+      // it won't be treated as the user's active cart.
+      const { data: newOrder, error: orderError } = await supabase
         .from('orders')
-        .select('id, total_price')
-        .eq('user_id', user.id)
-        .eq('status', 'pending')
+        .insert([
+          {
+            user_id: user.id,
+            total_price: itemsTotal,
+            status: 'pending',
+            is_reorder: true,
+          },
+        ])
+        .select()
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') {
-        throw fetchError;
+      if (orderError) {
+        throw orderError;
       }
 
-      if (existingOrder) {
-        targetOrderId = existingOrder.id;
-        const newTotal = (existingOrder.total_price || 0) + itemsTotal;
-
-        const { error: updateError } = await supabase
-          .from('orders')
-          .update({ total_price: newTotal })
-          .eq('id', targetOrderId);
-
-        if (updateError) {
-          throw updateError;
-        }
-      } else {
-        const { data: newOrder, error: orderError } = await supabase
-          .from('orders')
-          .insert([
-            {
-              user_id: user.id,
-              total_price: itemsTotal,
-              status: 'pending',
-            },
-          ])
-          .select()
-          .single();
-
-        if (orderError) {
-          throw orderError;
-        }
-
-        targetOrderId = newOrder.id;
-      }
+      const targetOrderId = newOrder.id;
 
       const itemsToInsert = (order.items || []).map((item) => ({
         order_id: targetOrderId,
@@ -195,12 +171,12 @@ const History = ({ onBack, onViewReceipt }) => {
         }
       }
 
-      window.dispatchEvent(new Event('cartUpdated'));
-
+      // Do NOT dispatch the cart update event. The created order is marked
+      // as a reorder; it will be ignored by the cart-fetch logic.
       Swal.fire({
         icon: 'success',
         title: 'Reorder Successful',
-        text: 'Items have been added to your current order.',
+        text: 'Your reorder was placed and marked pending.',
         confirmButtonColor: '#8B4513',
       });
     } catch (error) {
