@@ -17,6 +17,7 @@ import History from './components/History';
 import Favorites from './components/Favorites';
 import StaffDashboard from './pages/StaffDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import Swal from 'sweetalert2';
 import './index.css';
 
 function App() {
@@ -164,6 +165,69 @@ function App() {
     }
   };
 
+  const handlePayNow = async ({ total, paymentMethod, captureOnDelivery, orderId }) => {
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        alert('Please log in to complete payment.');
+        return;
+      }
+
+      // Prefer orderId passed from PayNow; otherwise derive from current cart items
+      let targetOrderId = orderId || (cartItems[0] && cartItems[0].order_id);
+
+      if (!targetOrderId) {
+        alert('No order found to pay. Please add items to your cart first.');
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          total_price: total,
+          status: 'pending',
+        })
+        .eq('id', targetOrderId);
+
+      if (updateError) {
+        console.error('Error updating order during payment:', updateError);
+        alert('Failed to update your order for payment.');
+        return;
+      }
+
+      const { error: paymentError } = await supabase
+        .from('payments')
+        .insert([
+          {
+            order_id: targetOrderId,
+            total_amount: total,
+            payment_method: paymentMethod || 'Cash on Delivery',
+            status: 'paid',
+            capture_on_delivery: !!captureOnDelivery,
+          },
+        ]);
+
+      if (paymentError) {
+        console.error('Error inserting payment record:', paymentError);
+        alert('Payment record could not be saved: ' + (paymentError.message || 'Unknown error'));
+        return;
+      }
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Payment Successful',
+        text: 'Thank you for your order!',
+        confirmButtonColor: '#8B4513',
+      }).then(() => {
+        navigate('/receipt');
+      });
+    } catch (err) {
+      console.error('Unexpected error during payment:', err);
+      alert('Unexpected error during payment. Please try again.');
+    }
+  };
+
   return (
     <Routes>
       <Route path="/" element={<LoadingScreen onGetStarted={() => navigate('/login')} />} />
@@ -251,6 +315,7 @@ function App() {
         <PayNow
           total={cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)), 0) * 1.1}
           paymentMethod={selectedPaymentMethod}
+          orderId={cartItems[0]?.order_id}
           customerName={
             userProfile?.full_name ||
             currentUser?.fullName ||
@@ -258,7 +323,7 @@ function App() {
             'Guest'
           }
           onBack={() => navigate('/payment')}
-          onPayNow={() => navigate('/receipt')}
+          onPayNow={handlePayNow}
         />
       } />
 
