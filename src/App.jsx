@@ -26,6 +26,7 @@ function App() {
   const [cartItems, setCartItems] = useState([]);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash');
   const [selectedOrderType, setSelectedOrderType] = useState('Dine In');
+  const [paymentPhone, setPaymentPhone] = useState('');
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [activeReceiptOrder, setActiveReceiptOrder] = useState(null);
@@ -170,7 +171,7 @@ function App() {
     }
   };
 
-  const handlePayNow = async ({ total, paymentMethod, captureOnDelivery, orderId, orderType }) => {
+  const handlePayNow = async ({ total, paymentMethod, captureOnDelivery, orderId, orderType, phoneNumber }) => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
 
@@ -231,6 +232,7 @@ function App() {
             payment_method: paymentMethod || 'Cash',
             status: 'paid',
             capture_on_delivery: !!captureOnDelivery,
+            phone_number: phoneNumber || null,
           },
         ]);
 
@@ -336,9 +338,10 @@ function App() {
           total={cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)), 0)}
           items={cartItems}
           onBack={() => navigate('/cart')}
-          onPayNow={({ paymentMethod, orderType }) => {
+          onPayNow={({ paymentMethod, orderType, phoneNumber }) => {
             setSelectedPaymentMethod(paymentMethod || 'Cash');
             setSelectedOrderType(orderType || 'Dine In');
+            setPaymentPhone(phoneNumber || '');
             navigate('/paynow');
           }}
         />
@@ -346,10 +349,12 @@ function App() {
 
       <Route path="/paynow" element={
         <PayNow
-          total={cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)), 0) * 1.1}
+          total={cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)), 0)}
+          items={cartItems}
           paymentMethod={selectedPaymentMethod}
           orderType={selectedOrderType}
           orderId={cartItems[0]?.order_id}
+          phoneNumber={paymentPhone}
           customerName={
             userProfile?.full_name ||
             currentUser?.fullName ||

@@ -6,17 +6,29 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
   const [deliveryTime, setDeliveryTime] = useState('10-20 Min');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash');
   const [selectedOrderType, setSelectedOrderType] = useState('Dine In');
+  const [phoneNumber, setPhoneNumber] = useState('');
 
   const subtotal = items.reduce(
     (sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)),
     0
   );
-  const tax = subtotal * 0.1; // 10% tax to match cart
   const deliveryFee = 0;
-  const finalTotal = subtotal + tax + deliveryFee;
+  const finalTotal = subtotal + deliveryFee;
 
   const handlePayNow = () => {
-    onPayNow({ paymentMethod: selectedPaymentMethod, orderType: selectedOrderType });
+    if (selectedPaymentMethod === 'GCash' || selectedPaymentMethod === 'PayMaya') {
+      const normalized = (phoneNumber || '').replace(/\D/g, '');
+      if (normalized.length !== 11) {
+        alert('Please enter a valid 11-digit mobile number for your e-wallet payment.');
+        return;
+      }
+    }
+
+    onPayNow({
+      paymentMethod: selectedPaymentMethod,
+      orderType: selectedOrderType,
+      phoneNumber: phoneNumber.trim(),
+    });
   };
 
   const updateQuantity = (id, change) => {
@@ -183,6 +195,29 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
         </div>
       </div>
 
+      {/* Phone number for GCash / PayMaya */}
+      {(selectedPaymentMethod === 'GCash' || selectedPaymentMethod === 'PayMaya') && (
+        <div className="px-4 sm:px-6 mb-4 max-w-md mx-auto w-full">
+          <div className="bg-white rounded-2xl p-4 shadow-md">
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              {selectedPaymentMethod} Mobile Number
+            </label>
+            <p className="text-xs text-gray-500 mb-2">Enter your 11-digit mobile number (e.g. 09XXXXXXXXX).</p>
+            <input
+              type="tel"
+              maxLength={11}
+              value={phoneNumber}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, '');
+                setPhoneNumber(value);
+              }}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+              placeholder="09XXXXXXXXX"
+            />
+          </div>
+        </div>
+      )}
+
       {/* Cart Items */}
       <div className="px-4 sm:px-6 space-y-3 mb-4 max-w-md mx-auto w-full">
         {items.map((item) => (
@@ -248,14 +283,6 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
         )}
       </div>
 
-      {/* Discount Banner */}
-      <div className="px-4 sm:px-6 mb-4 max-w-md mx-auto w-full">
-        <div className="bg-[#f4a825] rounded-xl p-4 flex items-center justify-between">
-          <span className="text-white font-semibold">20% Discount is applied!</span>
-          <ChevronLeft size={20} className="text-white rotate-180" />
-        </div>
-      </div>
-
       {/* Payment Summary */}
       <div className="px-4 sm:px-6 mb-4 max-w-md mx-auto w-full">
         <div className="bg-white rounded-2xl p-5 shadow-md">
@@ -265,10 +292,6 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Subtotal:</span>
               <span className="font-semibold">₱{subtotal.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Tax (10%):</span>
-              <span className="font-semibold">₱{tax.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-600">Delivery Fee:</span>

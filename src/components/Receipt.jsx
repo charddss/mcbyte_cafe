@@ -16,8 +16,7 @@ const Receipt = ({
     (sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)),
     0
   );
-  const tax = subtotal * 0.1;
-  const computedTotal = subtotal + tax;
+  const computedTotal = subtotal;
   const finalTotal = typeof totalPaid === 'number' ? totalPaid : computedTotal;
 
   const qrData = {
@@ -102,10 +101,6 @@ const Receipt = ({
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal</span>
                 <span>{`₱${subtotal.toFixed(2)}`}</span>
-              </div>
-              <div className="flex justify-between text-gray-600">
-                <span>Tax (10%)</span>
-                <span>{`₱${tax.toFixed(2)}`}</span>
               </div>
               <div className="border-t pt-2 mt-1 flex justify-between font-bold text-gray-900 text-base">
                 <span>Total Paid</span>

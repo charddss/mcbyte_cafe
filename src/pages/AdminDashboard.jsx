@@ -4,8 +4,6 @@ import Swal from 'sweetalert2';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { supabase } from '../lib/supabaseclient';
 
-const TAX_RATE = 0.12; // 12% tax rate (adjust if needed)
-
 const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('analytics');
   const [menuItems, setMenuItems] = useState([]);
@@ -61,7 +59,9 @@ const AdminDashboard = ({ onLogout }) => {
     todayRevenue: 0,
     todayOrders: 0,
     todaySalesSeries: [],
+    todayProductCounts: [],
   });
+  const [productNameFilter, setProductNameFilter] = useState('');
 
   useEffect(() => {
     fetchAdminProfile();
@@ -169,6 +169,32 @@ const AdminDashboard = ({ onLogout }) => {
       );
       const todayOrders = todayCompleted.length;
 
+      // Today's product counts (by product_name, across completed orders today)
+      const todayOrderIds = todayCompleted.map((o) => o.id);
+      let todayProductCounts = [];
+
+      if (todayOrderIds.length > 0) {
+        const { data: todayItems, error: todayItemsError } = await supabase
+          .from('order_items')
+          .select('product_name, quantity, order_id')
+          .in('order_id', todayOrderIds);
+
+        if (todayItemsError) {
+          console.error('Error fetching today order items for product counts:', todayItemsError);
+        } else {
+          const countsMap = {};
+          (todayItems || []).forEach((item) => {
+            const name = (item.product_name || 'Unknown').toString();
+            const qty = Number(item.quantity) || 1;
+            countsMap[name] = (countsMap[name] || 0) + qty;
+          });
+
+          todayProductCounts = Object.entries(countsMap)
+            .map(([name, quantity]) => ({ name, quantity }))
+            .sort((a, b) => b.quantity - a.quantity);
+        }
+      }
+
       // Today's sales by hour (for Today Sales line chart)
       const todaySalesByHour = {};
       todayCompleted.forEach((o) => {
@@ -203,6 +229,7 @@ const AdminDashboard = ({ onLogout }) => {
           todayRevenue,
           todayOrders,
           todaySalesSeries,
+          todayProductCounts,
         }));
         return;
       }
@@ -238,6 +265,7 @@ const AdminDashboard = ({ onLogout }) => {
         },
         dailySales,
         todaySalesSeries,
+        todayProductCounts,
       });
     } catch (error) {
       console.error('Error fetching analytics:', error);
@@ -562,11 +590,6 @@ const AdminDashboard = ({ onLogout }) => {
     { name: 'Total Sales', value: analytics.totalSales || 0 },
   ];
 
-  const totalTax = (analytics.totalSales || 0) * TAX_RATE;
-  const taxData = [
-    { name: 'Total Tax', value: totalTax },
-  ];
-
   const salesLineData = (analytics.dailySales || []).map((d) => ({
     name: d.label,
     sales: d.total,
@@ -585,6 +608,14 @@ const AdminDashboard = ({ onLogout }) => {
   ];
 
   const roleColors = ['#a855f7', '#3b82f6', '#22c55e', '#9ca3af'];
+  const todayProductCounts = analytics.todayProductCounts || [];
+  const productNameOptions = Array.from(
+    new Set(todayProductCounts.map((p) => p.name))
+  );
+  const filteredTodayProductCounts = productNameFilter
+    ? todayProductCounts.filter((p) => p.name === productNameFilter)
+    : todayProductCounts;
+  const hasAnyTodayProducts = todayProductCounts.length > 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-yellow-50/50 to-orange-50">
@@ -689,19 +720,6 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
             <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100">
               <div className="flex items-center gap-3">
-                <div className="bg-amber-100 p-3 rounded-xl">
-                  <TrendingUp size={24} className="text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Total Tax (₱)</p>
-                  <p className="text-xl font-bold text-gray-900 whitespace-nowrap">
-                    ₱ {totalTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100">
-              <div className="flex items-center gap-3">
                 <div className="bg-purple-100 p-3 rounded-xl">
                   <Users size={24} className="text-purple-600" />
                 </div>
@@ -730,21 +748,6 @@ const AdminDashboard = ({ onLogout }) => {
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(value) => `₱${Number(value).toLocaleString('en-US')}`} />
                     <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#f97316" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Total Tax Bar Chart */}
-            <div>
-              <p className="text-xs text-gray-500 mb-2">Total Tax (Based on Sales)</p>
-              <div className="h-40 sm:h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={taxData}>
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(value) => `₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#facc15" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -842,7 +845,9 @@ const AdminDashboard = ({ onLogout }) => {
                         <div key={entry.name} className="flex items-center gap-1">
                           <span
                             className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: roleColors[index % roleColors.length] }}
+                            style={{
+                              backgroundColor: roleColors[index % roleColors.length],
+                            }}
                           ></span>
                           <span className="truncate">
                             {entry.name}: {entry.value}
@@ -859,142 +864,60 @@ const AdminDashboard = ({ onLogout }) => {
               </div>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Menu Management Tab */}
-      {activeTab === 'menu' && (
-        <div className="px-6 py-4 space-y-4 pb-24">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-gray-800">Menu Items</h2>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 py-2 rounded-xl font-semibold hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg flex items-center gap-2"
-            >
-              <Plus size={18} />
-              Add Item
-            </button>
-          </div>
-
-          {/* Menu Filters */}
-          <div className="flex gap-2 bg-white rounded-2xl p-2 shadow-lg overflow-x-auto mb-4">
-            <button
-              onClick={() => setMenuFilter('all')}
-              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'all'
-                ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
-                : 'text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setMenuFilter('Hot Drinks')}
-              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Hot Drinks'
-                ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg'
-                : 'text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Hot Drinks
-            </button>
-            <button
-              onClick={() => setMenuFilter('Cold Drinks')}
-              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Cold Drinks'
-                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg'
-                : 'text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Cold Drinks
-            </button>
-            <button
-              onClick={() => setMenuFilter('Pastries')}
-              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Pastries'
-                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg'
-                : 'text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Pastries
-            </button>
-            <button
-              onClick={() => setMenuFilter('Meals')}
-              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Meals'
-                ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg'
-                : 'text-gray-600 hover:bg-gray-50'
-                }`}
-            >
-              Meals
-            </button>
-          </div>
-
-          {isLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="animate-spin text-orange-500" size={40} />
-            </div>
-          ) : menuItems.filter(item => menuFilter === 'all' || item.category === menuFilter).length === 0 ? (
-            <div className="text-center py-10 text-gray-500">
-              No {menuFilter === 'all' ? '' : menuFilter} items found.
-            </div>
-          ) : (
-            menuItems.filter(item => menuFilter === 'all' || item.category === menuFilter).map((item) => {
-              // Determine category color
-              let categoryColor = 'bg-orange-100 text-orange-700';
-              if (item.category === 'Hot Drinks') categoryColor = 'bg-red-100 text-red-700';
-              else if (item.category === 'Cold Drinks') categoryColor = 'bg-blue-100 text-blue-700';
-              else if (item.category === 'Pastries') categoryColor = 'bg-amber-100 text-amber-700';
-              else if (item.category === 'Meals') categoryColor = 'bg-green-100 text-green-700';
-
-              return (
-                <div
-                  key={item.id}
-                  className="bg-white rounded-3xl p-5 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
+          {/* Today's Products (by quantity) */}
+          <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-xl border border-gray-100 space-y-3 max-w-xl mx-auto">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">Today's Products</h3>
+                <span className="text-xs text-gray-500">
+                  {hasAnyTodayProducts
+                    ? `${todayProductCounts.length} product${todayProductCounts.length === 1 ? '' : 's'} today`
+                    : 'No completed orders today'}
+                </span>
+              </div>
+              <div className="w-full sm:w-48">
+                <select
+                  value={productNameFilter}
+                  onChange={(e) => setProductNameFilter(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="w-16 h-16 bg-gradient-to-br from-orange-100 to-yellow-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 shadow-md">
-                      {item.image ? (
-                        <img
-                          src={item.image}
-                          alt={item.name}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.parentElement.innerHTML = '<svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>';
-                          }}
-                        />
-                      ) : (
-                        <Coffee size={24} className="text-orange-600" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h3 className="font-bold text-gray-900 text-lg">{item.name}</h3>
-                          <p className="text-xs text-gray-500 mb-1">{item.description}</p>
-                          <span className={`text-xs px-2 py-1 rounded font-semibold ${categoryColor}`}>
-                            {item.category}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all hover:scale-110">
-                            <Edit size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteMenuItem(item.id)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all hover:scale-110"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="font-bold text-xl text-orange-600 whitespace-nowrap">
-                          ₱ {parseFloat(item.price).toLocaleString('en-US')}
-                        </span>
-                      </div>
-                    </div>
+                  <option value="">All products</option>
+                  {productNameOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {filteredTodayProductCounts.length > 0 ? (
+              <div className="divide-y divide-gray-100">
+                {filteredTodayProductCounts.slice(0, 10).map((p) => (
+                  <div
+                    key={p.name}
+                    className="flex items-center justify-between py-2 text-xs sm:text-sm"
+                  >
+                    <span className="font-medium text-gray-800 truncate max-w-[65%]">
+                      {p.name}
+                    </span>
+                    <span className="font-semibold text-gray-900 whitespace-nowrap">
+                      x{p.quantity}
+                    </span>
                   </div>
-                </div>
-              );
-            })
-          )}
+                ))}
+              </div>
+            ) : hasAnyTodayProducts ? (
+              <p className="text-xs text-gray-400 pt-1">
+                No products match this name.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-400 pt-1">
+                No product orders recorded today.
+              </p>
+            )}
+          </div>
         </div>
       )}
 

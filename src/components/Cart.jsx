@@ -127,12 +127,8 @@ const Cart = ({ items = [], onBack, onCheckout, onUpdateCart }) => {
         return cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     };
 
-    const calculateTax = () => {
-        return calculateSubtotal() * 0.1; // 10% tax
-    };
-
     const calculateTotal = () => {
-        return calculateSubtotal() + calculateTax();
+        return calculateSubtotal();
     };
 
     return (
@@ -258,10 +254,6 @@ const Cart = ({ items = [], onBack, onCheckout, onUpdateCart }) => {
                                 <div className="flex justify-between text-gray-600">
                                     <span>Subtotal</span>
                                     <span>₱{calculateSubtotal().toFixed(2)}</span>
-                                </div>
-                                <div className="flex justify-between text-gray-600">
-                                    <span>Tax (10%)</span>
-                                    <span>₱{calculateTax().toFixed(2)}</span>
                                 </div>
                                 <div className="border-t pt-3 flex justify-between font-bold text-lg text-gray-800">
                                     <span>Total</span>

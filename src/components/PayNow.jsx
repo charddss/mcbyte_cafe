@@ -7,6 +7,8 @@ const PayNow = ({
   orderType = 'Dine In',
   customerName = 'Guest',
   orderId,
+  phoneNumber,
+  items = [],
   onBack,
   onPayNow,
 }) => {
@@ -22,6 +24,7 @@ const PayNow = ({
         orderType,
         captureOnDelivery,
         orderId,
+        phoneNumber,
       });
     }
   };
@@ -83,6 +86,55 @@ const PayNow = ({
               <span className="font-bold text-lg text-amber-700">{formattedTotal}</span>
             </div>
           </div>
+
+          {/* Order Items (minimalist list with picture) */}
+          {items.length > 0 && (
+            <div className="mt-4 border-t pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-800">Order Items</h3>
+                <span className="text-xs text-gray-500">
+                  {items.length} {items.length === 1 ? 'item' : 'items'}
+                </span>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {items.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-3 text-xs text-gray-700"
+                  >
+                    {/* Item Image */}
+                    <div className="w-10 h-10 bg-gradient-to-br from-amber-100 to-orange-100 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0">
+                      {item.product_image || item.image ? (
+                        <img
+                          src={item.product_image || item.image}
+                          alt={item.product_name || 'Product image'}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-lg">☕</span>
+                      )}
+                    </div>
+
+                    {/* Item Text */}
+                    <div className="flex-1 min-w-0 mr-1">
+                      <p className="font-medium text-gray-900 truncate">
+                        {item.product_name}
+                      </p>
+                      <p className="text-[11px] text-gray-500">
+                        Qty: {item.quantity ?? 1}
+                        {item.size ? ` • ${item.size}` : ''}
+                      </p>
+                    </div>
+
+                    {/* Line Total */}
+                    <span className="font-semibold text-gray-900 whitespace-nowrap">
+                      ₱{(((item.price || 0) * (item.quantity ?? 1))).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
