@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Heart, ShoppingCart, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseclient';
+import Swal from 'sweetalert2';
 
 const Favorites = ({ onBack, onOrder }) => {
   const [favorites, setFavorites] = useState([]);
@@ -84,8 +85,29 @@ const Favorites = ({ onBack, onOrder }) => {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        alert('Please log in to manage favorites');
+        Swal.fire({
+          icon: 'warning',
+          title: 'Login Required',
+          text: 'Please log in to manage favorites',
+          confirmButtonColor: '#92400e',
+        });
         return;
+      }
+
+      // Show confirmation dialog
+      const result = await Swal.fire({
+        title: 'Remove from Favorites?',
+        text: 'Are you sure you want to remove this item from your favorites?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d97706',
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Yes, remove it',
+        cancelButtonText: 'Cancel'
+      });
+
+      if (!result.isConfirmed) {
+        return; // User cancelled
       }
 
       const { error } = await supabase
@@ -98,9 +120,24 @@ const Favorites = ({ onBack, onOrder }) => {
 
       // Update local state
       setFavorites(prev => prev.filter(fav => fav.id !== favoriteId));
+
+      // Show success message
+      Swal.fire({
+        icon: 'success',
+        title: 'Removed!',
+        text: 'Item has been removed from your favorites',
+        confirmButtonColor: '#d97706',
+        timer: 1500,
+        showConfirmButton: false,
+      });
     } catch (error) {
       console.error('Error removing favorite:', error);
-      alert('Failed to remove favorite. Please try again.');
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to remove favorite. Please try again.',
+        confirmButtonColor: '#d97706',
+      });
     }
   };
 
@@ -202,12 +239,12 @@ const Favorites = ({ onBack, onOrder }) => {
                         ${product.category === 'Hot Drinks'
                           ? 'bg-red-100 text-red-700'
                           : product.category === 'Cold Drinks'
-                          ? 'bg-blue-100 text-blue-700'
-                          : product.category === 'Pastries'
-                          ? 'bg-yellow-100 text-amber-800'
-                          : product.category === 'Meals'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-700'
+                            ? 'bg-blue-100 text-blue-700'
+                            : product.category === 'Pastries'
+                              ? 'bg-yellow-100 text-amber-800'
+                              : product.category === 'Meals'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-gray-100 text-gray-700'
                         }
                       `}
                     >

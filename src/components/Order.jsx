@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronLeft, Plus, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabaseclient';
+import Swal from 'sweetalert2';
 
 const Order = ({ product, onBack, onAddToCart }) => {
   const [quantity, setQuantity] = useState(1);
@@ -124,6 +125,16 @@ const Order = ({ product, onBack, onAddToCart }) => {
       // Dispatch custom event for cart update
       window.dispatchEvent(new Event('cartUpdated'));
 
+      // Show success alert
+      await Swal.fire({
+        icon: 'success',
+        title: 'Added to Cart!',
+        text: `${product?.name || 'Item'} has been added to your cart`,
+        confirmButtonColor: '#d97706',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+
       // Also call the original onAddToCart for local cart state
       if (onAddToCart && insertedItem) {
         onAddToCart(insertedItem);
@@ -131,7 +142,12 @@ const Order = ({ product, onBack, onAddToCart }) => {
 
     } catch (error) {
       console.error('Error adding to cart:', error);
-      alert('Failed to add item to cart. Please try again.');
+      Swal.fire({
+        icon: 'error',
+        title: 'Oops...',
+        text: 'Failed to add item to cart. Please try again.',
+        confirmButtonColor: '#d97706',
+      });
     } finally {
       setIsLoading(false);
     }

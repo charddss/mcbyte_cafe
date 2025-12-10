@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { ChevronLeft, Plus, Minus, MapPin, Clock } from 'lucide-react';
+import { ChevronLeft, Plus, Minus, MapPin, Clock, Wallet, CreditCard, Smartphone, UtensilsCrossed, ShoppingBag, Store } from 'lucide-react';
 
 const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
   const [deliveryAddress, setDeliveryAddress] = useState('3rd Door North');
   const [deliveryTime, setDeliveryTime] = useState('10-20 Min');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash');
+  const [selectedOrderType, setSelectedOrderType] = useState('Dine In');
 
   const subtotal = items.reduce(
     (sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)),
@@ -14,12 +16,60 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
   const finalTotal = subtotal + tax + deliveryFee;
 
   const handlePayNow = () => {
-    onPayNow('Cash on Delivery');
+    onPayNow({ paymentMethod: selectedPaymentMethod, orderType: selectedOrderType });
   };
 
   const updateQuantity = (id, change) => {
     // This would update cart items, but for now we'll just pass through
   };
+
+  const orderTypes = [
+    {
+      id: 'Dine In',
+      name: 'Dine In',
+      icon: UtensilsCrossed,
+      description: 'Eat at the restaurant',
+      color: 'from-orange-500 to-orange-600'
+    },
+    {
+      id: 'Takeout',
+      name: 'Takeout',
+      icon: ShoppingBag,
+      description: 'Take your order to go',
+      color: 'from-teal-500 to-teal-600'
+    },
+    {
+      id: 'Pickup',
+      name: 'Pickup',
+      icon: Store,
+      description: 'Pick up at counter',
+      color: 'from-indigo-500 to-indigo-600'
+    }
+  ];
+
+  const paymentMethods = [
+    {
+      id: 'Cash',
+      name: 'Cash',
+      icon: Wallet,
+      description: 'Pay with cash',
+      color: 'from-green-500 to-green-600'
+    },
+    {
+      id: 'GCash',
+      name: 'GCash',
+      icon: Smartphone,
+      description: 'Pay via GCash',
+      color: 'from-blue-500 to-blue-600'
+    },
+    {
+      id: 'PayMaya',
+      name: 'PayMaya',
+      icon: CreditCard,
+      description: 'Pay via PayMaya',
+      color: 'from-purple-500 to-purple-600'
+    }
+  ];
 
   return (
     <div className="min-h-screen bg-[#f4a825] pb-32 flex flex-col">
@@ -56,6 +106,80 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
           <button className="w-full bg-gray-100 text-gray-700 py-2 rounded-lg font-semibold hover:bg-gray-200 transition-colors text-sm">
             Add Delivery
           </button>
+        </div>
+      </div>
+
+      {/* Order Type Selection */}
+      <div className="px-4 sm:px-6 mb-4 max-w-md mx-auto w-full">
+        <div className="bg-white rounded-2xl p-4 shadow-md">
+          <h2 className="font-bold text-lg mb-4 text-gray-800">Order Type</h2>
+          <div className="grid grid-cols-3 gap-2">
+            {orderTypes.map((type) => {
+              const Icon = type.icon;
+              const isSelected = selectedOrderType === type.id;
+              return (
+                <button
+                  key={type.id}
+                  onClick={() => setSelectedOrderType(type.id)}
+                  className={`p-3 rounded-xl border-2 transition-all duration-200 ${isSelected
+                    ? 'border-amber-600 bg-amber-50 shadow-md'
+                    : 'border-gray-200 bg-white hover:border-amber-300 hover:bg-amber-50/50'
+                    }`}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${type.color} flex items-center justify-center shadow-sm`}>
+                      <Icon size={20} className="text-white" />
+                    </div>
+                    <div className="text-center">
+                      <p className="font-semibold text-gray-900 text-xs">{type.name}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{type.description}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Payment Method Selection */}
+      <div className="px-4 sm:px-6 mb-4 max-w-md mx-auto w-full">
+        <div className="bg-white rounded-2xl p-4 shadow-md">
+          <h2 className="font-bold text-lg mb-4 text-gray-800">Payment Method</h2>
+          <div className="space-y-3">
+            {paymentMethods.map((method) => {
+              const Icon = method.icon;
+              const isSelected = selectedPaymentMethod === method.id;
+              return (
+                <button
+                  key={method.id}
+                  onClick={() => setSelectedPaymentMethod(method.id)}
+                  className={`w-full p-4 rounded-xl border-2 transition-all duration-200 ${isSelected
+                    ? 'border-amber-600 bg-amber-50 shadow-md'
+                    : 'border-gray-200 bg-white hover:border-amber-300 hover:bg-amber-50/50'
+                    }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${method.color} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                      <Icon size={24} className="text-white" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="font-semibold text-gray-900 text-sm sm:text-base">{method.name}</p>
+                      <p className="text-xs text-gray-500">{method.description}</p>
+                    </div>
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${isSelected
+                      ? 'border-amber-600 bg-amber-600'
+                      : 'border-gray-300'
+                      }`}>
+                      {isSelected && (
+                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -167,7 +291,7 @@ const Payment = ({ items = [], total = 0, onBack, onPayNow }) => {
             onClick={handlePayNow}
             className="w-full bg-[#8B4513] text-white py-4 rounded-xl font-bold hover:bg-[#6B3410] transition-colors shadow-lg"
           >
-            Pay Now
+            Pay Now with {selectedPaymentMethod}
           </button>
         </div>
       </div>

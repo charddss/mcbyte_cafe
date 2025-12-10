@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, Users, BarChart3, Coffee, Plus, Edit, Trash2, LogOut, TrendingUp, DollarSign, ShoppingCart, X, Loader2, User } from 'lucide-react';
-
+import Swal from 'sweetalert2';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { supabase } from '../lib/supabaseclient';
 
@@ -21,7 +21,11 @@ const AdminDashboard = ({ onLogout }) => {
   });
 
   const [users, setUsers] = useState([]);
+  const [userFilter, setUserFilter] = useState('all'); // 'all', 'users', 'staff'
+  const [menuFilter, setMenuFilter] = useState('all'); // 'all', 'Hot Drinks', 'Cold Drinks', 'Pastries', 'Meals'
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
   const [newUser, setNewUser] = useState({
     full_name: '',
     email: '',
@@ -29,14 +33,39 @@ const AdminDashboard = ({ onLogout }) => {
     role: 'Staff',
     status: 'Active',
   });
+  const [editedUser, setEditedUser] = useState({
+    full_name: '',
+    email: '',
+    role: 'Staff',
+    status: 'Active',
+  });
+
+  // Admin Profile State
+  const [currentAdminId, setCurrentAdminId] = useState(null);
+  const [adminProfile, setAdminProfile] = useState({
+    full_name: '',
+    email: '',
+    role: 'Admin',
+    status: 'Active',
+  });
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [editedProfile, setEditedProfile] = useState({
+    full_name: '',
+    email: '',
+  });
 
   const [analytics, setAnalytics] = useState({
     totalSales: 0,
     totalOrders: 0,
     totalCustomers: 0,
     todayRevenue: 0,
-    todayOrders: 0
+    todayOrders: 0,
+    todaySalesSeries: [],
   });
+
+  useEffect(() => {
+    fetchAdminProfile();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'menu') {
@@ -104,21 +133,22 @@ const AdminDashboard = ({ onLogout }) => {
 
       const totalOrders = allOrders.length;
 
-      // Daily orders series for line chart (last 7 days)
-      const countsByDay = {};
-      allOrders.forEach((o) => {
+      // Daily sales (completed orders only) for line chart (last 7 days)
+      const salesByDay = {};
+      completedOrders.forEach((o) => {
         if (!o.created_at) return;
         const d = new Date(o.created_at);
         if (Number.isNaN(d.getTime())) return;
         const key = d.toISOString().slice(0, 10);
-        countsByDay[key] = (countsByDay[key] || 0) + 1;
+        const amount = Number(o.total_price) || 0;
+        salesByDay[key] = (salesByDay[key] || 0) + amount;
       });
 
-      const sortedKeys = Object.keys(countsByDay).sort();
-      const dailyOrders = sortedKeys.slice(-7).map((key) => {
+      const sortedSalesKeys = Object.keys(salesByDay).sort();
+      const dailySales = sortedSalesKeys.slice(-7).map((key) => {
         const d = new Date(key);
         const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        return { date: key, label, count: countsByDay[key] };
+        return { date: key, label, total: salesByDay[key] };
       });
 
       const now = new Date();
@@ -139,6 +169,26 @@ const AdminDashboard = ({ onLogout }) => {
       );
       const todayOrders = todayCompleted.length;
 
+      // Today's sales by hour (for Today Sales line chart)
+      const todaySalesByHour = {};
+      todayCompleted.forEach((o) => {
+        if (!o.created_at) return;
+        const d = new Date(o.created_at);
+        if (Number.isNaN(d.getTime())) return;
+        const hour = d.getHours();
+        const amount = Number(o.total_price) || 0;
+        todaySalesByHour[hour] = (todaySalesByHour[hour] || 0) + amount;
+      });
+
+      const sortedHourKeys = Object.keys(todaySalesByHour)
+        .map((h) => Number(h))
+        .sort((a, b) => a - b);
+
+      const todaySalesSeries = sortedHourKeys.map((hour) => {
+        const label = `${hour.toString().padStart(2, '0')}:00`;
+        return { hour: label, total: todaySalesByHour[hour] };
+      });
+
       // Fetch users for customer count
       const { data: usersData, error: usersError } = await supabase
         .from('users')
@@ -152,6 +202,7 @@ const AdminDashboard = ({ onLogout }) => {
           totalOrders,
           todayRevenue,
           todayOrders,
+          todaySalesSeries,
         }));
         return;
       }
@@ -185,10 +236,46 @@ const AdminDashboard = ({ onLogout }) => {
           customer: customerCount,
           other: otherCount,
         },
-        dailyOrders,
+        dailySales,
+        todaySalesSeries,
       });
     } catch (error) {
       console.error('Error fetching analytics:', error);
+    }
+  };
+
+  const fetchAdminProfile = async () => {
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        console.error('Error fetching current user:', userError);
+        return;
+      }
+
+      setCurrentAdminId(user.id);
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, email, full_name, role, status')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching admin profile:', error);
+        return;
+      }
+
+      if (data) {
+        setAdminProfile({
+          full_name: data.full_name || '',
+          email: data.email || '',
+          role: data.role || 'Admin',
+          status: data.status || 'Active',
+        });
+      }
+    } catch (error) {
+      console.error('Unexpected error fetching admin profile:', error);
     }
   };
 
@@ -205,26 +292,29 @@ const AdminDashboard = ({ onLogout }) => {
         return;
       }
 
-      const mappedUsers = (data || []).map((u) => {
-        const rawRole = (u.role || '').toString();
-        const roleCapitalized = rawRole
-          ? rawRole.charAt(0).toUpperCase() + rawRole.slice(1).toLowerCase()
-          : 'User';
+      const mappedUsers = (data || [])
+        .filter(u => u.id !== currentAdminId) // Exclude current admin
+        .map((u) => {
+          const rawRole = (u.role || '').toString();
+          const roleCapitalized = rawRole
+            ? rawRole.charAt(0).toUpperCase() + rawRole.slice(1).toLowerCase()
+            : 'User';
 
-        const rawStatus = (u.status || '').toString().toLowerCase();
-        let statusLabel = 'Unknown';
-        if (rawStatus === 'active') statusLabel = 'Active';
-        else if (rawStatus === 'suspended') statusLabel = 'Suspended';
-        else if (rawStatus) statusLabel = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
+          const rawStatus = (u.status || '').toString().toLowerCase();
+          let statusLabel = 'Unknown';
+          if (rawStatus === 'active') statusLabel = 'Active';
+          else if (rawStatus === 'suspended') statusLabel = 'Suspended';
+          else if (rawStatus) statusLabel = rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1);
 
-        return {
-          id: u.id,
-          name: u.full_name || u.email || 'Unnamed User',
-          email: u.email,
-          role: roleCapitalized,
-          status: statusLabel,
-        };
-      });
+          return {
+            id: u.id,
+            name: u.full_name || u.email || 'Unnamed User',
+            email: u.email,
+            role: roleCapitalized,
+            rawRole: rawRole.toLowerCase(),
+            status: statusLabel,
+          };
+        });
 
       setUsers(mappedUsers);
     } catch (error) {
@@ -280,8 +370,20 @@ const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  const handleDeleteUser = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) return;
+  const handleDeleteUser = async (id, userName) => {
+    const result = await Swal.fire({
+      title: 'Delete User?',
+      text: `Are you sure you want to delete ${userName}? This action cannot be undone.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
+      reverseButtons: true,
+    });
+
+    if (!result.isConfirmed) return;
 
     try {
       const { error } = await supabase
@@ -292,9 +394,22 @@ const AdminDashboard = ({ onLogout }) => {
       if (error) throw error;
 
       setUsers(prevUsers => prevUsers.filter(user => user.id !== id));
+
+      Swal.fire({
+        title: 'Deleted!',
+        text: 'User has been deleted successfully.',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
     } catch (error) {
       console.error('Error deleting user:', error);
-      showToast('Error deleting user: ' + error.message, 'error');
+      Swal.fire({
+        title: 'Error!',
+        text: 'Error deleting user: ' + error.message,
+        icon: 'error',
+        confirmButtonColor: '#f97316',
+      });
     }
   };
 
@@ -351,6 +466,90 @@ const AdminDashboard = ({ onLogout }) => {
     }
   };
 
+  const openEditUserModal = (user) => {
+    setEditingUser(user);
+    setEditedUser({
+      full_name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+    });
+    setShowEditUserModal(true);
+  };
+
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          full_name: editedUser.full_name.trim(),
+          email: editedUser.email.trim(),
+          role: editedUser.role.toLowerCase(),
+          status: editedUser.status.toLowerCase(),
+        })
+        .eq('id', editingUser.id);
+
+      if (error) throw error;
+
+      setShowEditUserModal(false);
+      await fetchUsers();
+
+      Swal.fire({
+        title: 'Success!',
+        text: 'User updated successfully!',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (error) {
+      console.error('Error updating user:', error);
+      Swal.fire({
+        title: 'Error!',
+        text: 'Error updating user: ' + error.message,
+        icon: 'error',
+        confirmButtonColor: '#f97316',
+      });
+    }
+  };
+
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          full_name: editedProfile.full_name.trim(),
+          email: editedProfile.email.trim(),
+        })
+        .eq('id', currentAdminId);
+
+      if (error) throw error;
+
+      setAdminProfile({
+        ...adminProfile,
+        full_name: editedProfile.full_name.trim(),
+        email: editedProfile.email.trim(),
+      });
+
+      setShowEditProfileModal(false);
+      showToast('Profile updated successfully!', 'success');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      showToast('Error updating profile: ' + error.message, 'error');
+    }
+  };
+
+  const openEditProfileModal = () => {
+    setEditedProfile({
+      full_name: adminProfile.full_name,
+      email: adminProfile.email,
+    });
+    setShowEditProfileModal(true);
+  };
+
   // Helpers for charts
   const roleStats = analytics.customersByRole || {};
   const roleTotal =
@@ -368,9 +567,14 @@ const AdminDashboard = ({ onLogout }) => {
     { name: 'Total Tax', value: totalTax },
   ];
 
-  const ordersLineData = (analytics.dailyOrders || []).map((d) => ({
+  const salesLineData = (analytics.dailySales || []).map((d) => ({
     name: d.label,
-    orders: d.count,
+    sales: d.total,
+  }));
+
+  const todaySalesLineData = (analytics.todaySalesSeries || []).map((d) => ({
+    name: d.hour,
+    sales: d.total,
   }));
 
   const roleData = [
@@ -407,34 +611,47 @@ const AdminDashboard = ({ onLogout }) => {
       </div>
 
       {/* Tabs */}
-      <div className="px-6 mt-6 mb-4">
+      <div className="px-4 mt-6 mb-4">
         <div className="flex gap-2 bg-white rounded-2xl p-2 shadow-lg">
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${activeTab === 'analytics'
+            className={`flex-1 py-2 px-2 rounded-xl font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 text-xs ${activeTab === 'analytics'
               ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
               : 'text-gray-600 hover:bg-gray-50'
               }`}
           >
-            Analytics
+            <BarChart3 size={18} className="flex-shrink-0" />
+            <span>Analytics</span>
           </button>
           <button
             onClick={() => setActiveTab('menu')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${activeTab === 'menu'
+            className={`flex-1 py-2 px-2 rounded-xl font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 text-xs ${activeTab === 'menu'
               ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
               : 'text-gray-600 hover:bg-gray-50'
               }`}
           >
-            Menu
+            <Coffee size={18} className="flex-shrink-0" />
+            <span>Menu</span>
           </button>
           <button
             onClick={() => setActiveTab('users')}
-            className={`flex-1 py-3 px-4 rounded-xl font-semibold transition-all duration-200 ${activeTab === 'users'
+            className={`flex-1 py-2 px-2 rounded-xl font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 text-xs ${activeTab === 'users'
               ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
               : 'text-gray-600 hover:bg-gray-50'
               }`}
           >
-            Users
+            <Users size={18} className="flex-shrink-0" />
+            <span>Users</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`flex-1 py-2 px-2 rounded-xl font-semibold transition-all duration-200 flex flex-col items-center justify-center gap-1 text-xs ${activeTab === 'profile'
+              ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+              : 'text-gray-600 hover:bg-gray-50'
+              }`}
+          >
+            <User size={18} className="flex-shrink-0" />
+            <span>Profile</span>
           </button>
         </div>
       </div>
@@ -459,6 +676,19 @@ const AdminDashboard = ({ onLogout }) => {
             </div>
             <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100">
               <div className="flex items-center gap-3">
+                <div className="bg-green-100 p-3 rounded-xl">
+                  <DollarSign size={24} className="text-green-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Today's Sales</p>
+                  <p className="text-xl font-bold text-gray-900 whitespace-nowrap">
+                    ₱ {analytics.todayRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100">
+              <div className="flex items-center gap-3">
                 <div className="bg-amber-100 p-3 rounded-xl">
                   <TrendingUp size={24} className="text-amber-600" />
                 </div>
@@ -467,17 +697,6 @@ const AdminDashboard = ({ onLogout }) => {
                   <p className="text-xl font-bold text-gray-900 whitespace-nowrap">
                     ₱ {totalTax.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl p-4 shadow-lg border border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="bg-blue-100 p-3 rounded-xl">
-                  <ShoppingCart size={24} className="text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Total Orders</p>
-                  <p className="text-xl font-bold text-gray-900">{analytics.totalOrders}</p>
                 </div>
               </div>
             </div>
@@ -531,19 +750,19 @@ const AdminDashboard = ({ onLogout }) => {
               </div>
             </div>
 
-            {/* Total Orders Line Chart (Last 7 Days) */}
+            {/* Total Sales Line Chart (Last 7 Days) */}
             <div>
-              <p className="text-xs text-gray-500 mb-2">Orders (Last 7 Days)</p>
+              <p className="text-xs text-gray-500 mb-2">Sales (Last 7 Days)</p>
               <div className="h-40 sm:h-48">
-                {ordersLineData.length > 1 ? (
+                {salesLineData.length > 1 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={ordersLineData}>
+                    <LineChart data={salesLineData}>
                       <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
-                      <Tooltip />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value) => `₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
                       <Line
                         type="monotone"
-                        dataKey="orders"
+                        dataKey="sales"
                         stroke="#3b82f6"
                         strokeWidth={2}
                         dot={{ r: 3 }}
@@ -554,6 +773,34 @@ const AdminDashboard = ({ onLogout }) => {
                 ) : (
                   <div className="h-full flex items-center justify-center text-xs text-gray-400">
                     Not enough data for line graph yet.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Today's Sales Line Chart (by hour) */}
+            <div>
+              <p className="text-xs text-gray-500 mb-2">Today's Sales (by hour)</p>
+              <div className="h-40 sm:h-48">
+                {todaySalesLineData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={todaySalesLineData}>
+                      <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(value) => `₱${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+                      <Line
+                        type="monotone"
+                        dataKey="sales"
+                        stroke="#16a34a"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-xs text-gray-400">
+                    No sales data for today yet.
                   </div>
                 )}
               </div>
@@ -629,66 +876,124 @@ const AdminDashboard = ({ onLogout }) => {
             </button>
           </div>
 
+          {/* Menu Filters */}
+          <div className="flex gap-2 bg-white rounded-2xl p-2 shadow-lg overflow-x-auto mb-4">
+            <button
+              onClick={() => setMenuFilter('all')}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'all'
+                ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setMenuFilter('Hot Drinks')}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Hot Drinks'
+                ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Hot Drinks
+            </button>
+            <button
+              onClick={() => setMenuFilter('Cold Drinks')}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Cold Drinks'
+                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Cold Drinks
+            </button>
+            <button
+              onClick={() => setMenuFilter('Pastries')}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Pastries'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Pastries
+            </button>
+            <button
+              onClick={() => setMenuFilter('Meals')}
+              className={`flex-1 py-2 px-3 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-xs ${menuFilter === 'Meals'
+                ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Meals
+            </button>
+          </div>
+
           {isLoading ? (
             <div className="flex justify-center py-10">
               <Loader2 className="animate-spin text-orange-500" size={40} />
             </div>
-          ) : menuItems.length === 0 ? (
+          ) : menuItems.filter(item => menuFilter === 'all' || item.category === menuFilter).length === 0 ? (
             <div className="text-center py-10 text-gray-500">
-              No items found. Add some items to get started!
+              No {menuFilter === 'all' ? '' : menuFilter} items found.
             </div>
           ) : (
-            menuItems.map((item) => (
-              <div
-                key={item.id}
-                className="bg-white rounded-3xl p-5 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="w-16 h-16 bg-gradient-to-br from-orange-100 to-yellow-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 shadow-md">
-                    {item.image ? (
-                      <img
-                        src={item.image}
-                        alt={item.name}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.parentElement.innerHTML = '<svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>';
-                        }}
-                      />
-                    ) : (
-                      <Coffee size={24} className="text-orange-600" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-lg">{item.name}</h3>
-                        <p className="text-xs text-gray-500 mb-1">{item.description}</p>
-                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded font-semibold">
-                          {item.category}
+            menuItems.filter(item => menuFilter === 'all' || item.category === menuFilter).map((item) => {
+              // Determine category color
+              let categoryColor = 'bg-orange-100 text-orange-700';
+              if (item.category === 'Hot Drinks') categoryColor = 'bg-red-100 text-red-700';
+              else if (item.category === 'Cold Drinks') categoryColor = 'bg-blue-100 text-blue-700';
+              else if (item.category === 'Pastries') categoryColor = 'bg-amber-100 text-amber-700';
+              else if (item.category === 'Meals') categoryColor = 'bg-green-100 text-green-700';
+
+              return (
+                <div
+                  key={item.id}
+                  className="bg-white rounded-3xl p-5 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-16 h-16 bg-gradient-to-br from-orange-100 to-yellow-100 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 shadow-md">
+                      {item.image ? (
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.parentElement.innerHTML = '<svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>';
+                          }}
+                        />
+                      ) : (
+                        <Coffee size={24} className="text-orange-600" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className="font-bold text-gray-900 text-lg">{item.name}</h3>
+                          <p className="text-xs text-gray-500 mb-1">{item.description}</p>
+                          <span className={`text-xs px-2 py-1 rounded font-semibold ${categoryColor}`}>
+                            {item.category}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all hover:scale-110">
+                            <Edit size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMenuItem(item.id)}
+                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all hover:scale-110"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-3">
+                        <span className="font-bold text-xl text-orange-600 whitespace-nowrap">
+                          ₱ {parseFloat(item.price).toLocaleString('en-US')}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all hover:scale-110">
-                          <Edit size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteMenuItem(item.id)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all hover:scale-110"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between mt-3">
-                      <span className="font-bold text-xl text-orange-600 whitespace-nowrap">
-                        ₱ {parseFloat(item.price).toLocaleString('en-US')}
-                      </span>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
@@ -708,12 +1013,53 @@ const AdminDashboard = ({ onLogout }) => {
             </button>
           </div>
 
-          {users.length === 0 ? (
+          {/* User Filters */}
+          <div className="flex gap-2 bg-white rounded-2xl p-2 shadow-lg overflow-x-auto mb-4">
+            <button
+              onClick={() => setUserFilter('all')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${userFilter === 'all'
+                ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setUserFilter('users')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${userFilter === 'users'
+                ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Users
+            </button>
+            <button
+              onClick={() => setUserFilter('staff')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${userFilter === 'staff'
+                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Staff
+            </button>
+          </div>
+
+          {users.filter(user => {
+            if (userFilter === 'all') return true;
+            if (userFilter === 'users') return user.rawRole === 'customer' || user.rawRole === 'user';
+            if (userFilter === 'staff') return user.rawRole === 'staff';
+            return true;
+          }).length === 0 ? (
             <div className="text-center py-10 text-gray-500">
-              No users found. Users will be loaded from the database.
+              No {userFilter === 'all' ? '' : userFilter} found.
             </div>
           ) : (
-            users.map((user) => (
+            users.filter(user => {
+              if (userFilter === 'all') return true;
+              if (userFilter === 'users') return user.rawRole === 'customer' || user.rawRole === 'user';
+              if (userFilter === 'staff') return user.rawRole === 'staff';
+              return true;
+            }).map((user) => (
               <div
                 key={user.id}
                 className="bg-white rounded-3xl p-5 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50"
@@ -743,11 +1089,14 @@ const AdminDashboard = ({ onLogout }) => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all hover:scale-110">
+                    <button
+                      onClick={() => openEditUserModal(user)}
+                      className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all hover:scale-110"
+                    >
                       <Edit size={18} />
                     </button>
                     <button
-                      onClick={() => handleDeleteUser(user.id)}
+                      onClick={() => handleDeleteUser(user.id, user.name)}
                       className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all hover:scale-110"
                     >
                       <Trash2 size={18} />
@@ -757,6 +1106,83 @@ const AdminDashboard = ({ onLogout }) => {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* Admin Profile Tab */}
+      {activeTab === 'profile' && (
+        <div className="px-6 py-4 space-y-4 pb-24">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-800">Admin Profile</h2>
+          </div>
+
+          <div className="bg-white rounded-3xl p-6 shadow-xl border-2 border-white/50 max-w-xl mx-auto">
+            {/* Profile Header */}
+            <div className="flex items-center gap-4 mb-6 pb-6 border-b border-gray-200">
+              <div className="w-20 h-20 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
+                <span className="text-white text-3xl font-bold">
+                  {adminProfile.full_name ? adminProfile.full_name.charAt(0).toUpperCase() : 'A'}
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-gray-900 text-2xl">
+                  {adminProfile.full_name || 'Admin User'}
+                </h3>
+                <p className="text-sm text-gray-500">{adminProfile.email}</p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-xs px-3 py-1 rounded-full font-semibold bg-purple-100 text-purple-700">
+                    {adminProfile.role}
+                  </span>
+                  <span className={`text-xs px-3 py-1 rounded-full font-semibold ${adminProfile.status === 'Active'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-red-100 text-red-700'
+                    }`}>
+                    {adminProfile.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Profile Details */}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Full Name</label>
+                <div className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200">
+                  <p className="text-gray-900">{adminProfile.full_name || 'Not set'}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
+                <div className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200">
+                  <p className="text-gray-900">{adminProfile.email || 'Not set'}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Role</label>
+                <div className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200">
+                  <p className="text-gray-900">{adminProfile.role}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Account Status</label>
+                <div className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200">
+                  <p className="text-gray-900">{adminProfile.status}</p>
+                </div>
+              </div>
+
+              {/* Edit Profile Button */}
+              <button
+                onClick={openEditProfileModal}
+                className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3 rounded-xl font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all mt-6 flex items-center justify-center gap-2"
+              >
+                <Edit size={18} />
+                Edit Profile
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -847,6 +1273,92 @@ const AdminDashboard = ({ onLogout }) => {
         </div>
       )}
 
+      {/* Edit User Modal */}
+      {showEditUserModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Edit User</h2>
+              <button
+                onClick={() => setShowEditUserModal(false)}
+                type="button"
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={24} className="text-gray-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateUser} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedUser.full_name}
+                  onChange={(e) => setEditedUser({ ...editedUser, full_name: e.target.value })}
+                  placeholder="e.g. Juan Dela Cruz"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedUser.email}
+                  onChange={(e) => setEditedUser({ ...editedUser, email: e.target.value })}
+                  placeholder="user@example.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <select
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedUser.role}
+                  onChange={(e) => setEditedUser({ ...editedUser, role: e.target.value })}
+                >
+                  <option value="Admin">Admin</option>
+                  <option value="Staff">Staff</option>
+                  <option value="Customer">Customer</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedUser.status}
+                  onChange={(e) => setEditedUser({ ...editedUser, status: e.target.value })}
+                >
+                  <option value="Active">Active</option>
+                  <option value="Suspended">Suspended</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowEditUserModal(false)}
+                  className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3 rounded-xl font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+
       {/* Add Item Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -931,6 +1443,66 @@ const AdminDashboard = ({ onLogout }) => {
               >
                 {isLoading ? 'Adding...' : 'Add Item'}
               </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Profile Modal */}
+      {showEditProfileModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Edit Profile</h2>
+              <button
+                onClick={() => setShowEditProfileModal(false)}
+                type="button"
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={24} className="text-gray-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProfile} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedProfile.full_name}
+                  onChange={(e) => setEditedProfile({ ...editedProfile, full_name: e.target.value })}
+                  placeholder="Enter your full name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedProfile.email}
+                  onChange={(e) => setEditedProfile({ ...editedProfile, email: e.target.value })}
+                  placeholder="Enter your email"
+                />
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowEditProfileModal(false)}
+                  className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3 rounded-xl font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all"
+                >
+                  Save Changes
+                </button>
+              </div>
             </form>
           </div>
         </div>

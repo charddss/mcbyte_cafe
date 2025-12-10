@@ -21,7 +21,7 @@ const History = ({ onBack, onViewReceipt }) => {
 
         const { data, error } = await supabase
           .from('orders')
-          .select('id, total_price, status, created_at, order_items (id, product_name, product_image, quantity, size, price)')
+          .select('id, total_price, status, order_type, created_at, order_items (id, product_name, product_image, quantity, size, price)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
@@ -51,6 +51,7 @@ const History = ({ onBack, onViewReceipt }) => {
           return {
             id: order.id,
             status: order.status || 'completed',
+            orderType: order.order_type || 'Dine In',
             date: createdAt
               ? createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
               : '',
@@ -72,6 +73,42 @@ const History = ({ onBack, onViewReceipt }) => {
     };
 
     fetchOrders();
+
+    // Set up real-time subscription for order status updates
+    const setupRealtimeSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      const subscription = supabase
+        .channel('order-status-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'orders',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('Order status updated:', payload);
+            fetchOrders(); // Refresh orders when status changes
+          }
+        )
+        .subscribe();
+
+      // Auto-refresh every 10 seconds to catch any missed updates
+      const intervalId = setInterval(() => {
+        fetchOrders();
+      }, 10000);
+
+      return () => {
+        subscription.unsubscribe();
+        clearInterval(intervalId);
+      };
+    };
+
+    setupRealtimeSubscription();
   }, []);
 
   const handleDeleteOrder = async (orderId) => {
@@ -189,6 +226,8 @@ const History = ({ onBack, onViewReceipt }) => {
 
   const getStatusInfo = (status) => {
     switch (status) {
+      case 'paid':
+        return { icon: Clock, color: 'from-yellow-500 to-orange-500', bg: 'bg-yellow-50', text: 'text-yellow-700', label: 'Pending' };
       case 'pending':
         return { icon: Clock, color: 'from-yellow-500 to-orange-500', bg: 'bg-yellow-50', text: 'text-yellow-700', label: 'Pending' };
       case 'preparing':
@@ -243,6 +282,21 @@ const History = ({ onBack, onViewReceipt }) => {
           orders.map((order) => {
             const statusInfo = getStatusInfo(order.status);
             const StatusIcon = statusInfo.icon;
+
+            // Get order type color
+            const getOrderTypeColor = (type) => {
+              switch (type) {
+                case 'Dine In':
+                  return 'bg-orange-100 text-orange-700';
+                case 'Takeout':
+                  return 'bg-teal-100 text-teal-700';
+                case 'Pickup':
+                  return 'bg-indigo-100 text-indigo-700';
+                default:
+                  return 'bg-gray-100 text-gray-700';
+              }
+            };
+
             return (
               <div
                 key={order.id}
@@ -250,11 +304,14 @@ const History = ({ onBack, onViewReceipt }) => {
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <h3 className="font-bold text-gray-900 text-lg">Order #{order.id}</h3>
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusInfo.bg} ${statusInfo.text} flex items-center gap-1`}>
                         <StatusIcon size={14} />
                         {statusInfo.label}
+                      </span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${getOrderTypeColor(order.orderType)}`}>
+                        {order.orderType}
                       </span>
                     </div>
                     <p className="text-sm text-gray-500 mb-3">{order.date} • {order.time}</p>

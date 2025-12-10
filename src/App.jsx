@@ -24,7 +24,8 @@ function App() {
   const navigate = useNavigate();
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [cartItems, setCartItems] = useState([]);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash on Delivery');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('Cash');
+  const [selectedOrderType, setSelectedOrderType] = useState('Dine In');
   const [currentUser, setCurrentUser] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
   const [activeReceiptOrder, setActiveReceiptOrder] = useState(null);
@@ -125,11 +126,14 @@ function App() {
     }
   };
 
-  const addToCart = (item) => {
+  const addToCart = async (item) => {
     if (item) {
       setCartItems((prev) => [...prev, item]);
     }
-    navigate('/cart');
+    // Wait for cart to be fetched from database before navigating
+    await fetchCartItems();
+    // Navigate back to home to continue shopping
+    navigate('/home');
   };
 
   const handleLoginSuccess = (user) => {
@@ -166,7 +170,7 @@ function App() {
     }
   };
 
-  const handlePayNow = async ({ total, paymentMethod, captureOnDelivery, orderId }) => {
+  const handlePayNow = async ({ total, paymentMethod, captureOnDelivery, orderId, orderType }) => {
     try {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
 
@@ -183,12 +187,33 @@ function App() {
         return;
       }
 
+      // Verify the order exists in the database
+      const { data: orderCheck, error: orderCheckError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('id', targetOrderId)
+        .single();
+
+      if (orderCheckError || !orderCheck) {
+        console.error('Order not found:', orderCheckError);
+        alert('Order not found. Please try adding items to your cart again.');
+        return;
+      }
+
+      // Prepare update object
+      const updateData = {
+        total_price: total,
+        status: 'paid', // Changed from 'pending' to 'paid' so it won't show in cart
+      };
+
+      // Only add order_type if it's provided (column may not exist yet)
+      if (orderType) {
+        updateData.order_type = orderType;
+      }
+
       const { error: updateError } = await supabase
         .from('orders')
-        .update({
-          total_price: total,
-          status: 'pending',
-        })
+        .update(updateData)
         .eq('id', targetOrderId);
 
       if (updateError) {
@@ -203,7 +228,7 @@ function App() {
           {
             order_id: targetOrderId,
             total_amount: total,
-            payment_method: paymentMethod || 'Cash on Delivery',
+            payment_method: paymentMethod || 'Cash',
             status: 'paid',
             capture_on_delivery: !!captureOnDelivery,
           },
@@ -214,6 +239,9 @@ function App() {
         alert('Payment record could not be saved: ' + (paymentError.message || 'Unknown error'));
         return;
       }
+
+      // Clear the cart after successful payment
+      await fetchCartItems();
 
       Swal.fire({
         icon: 'success',
@@ -308,7 +336,11 @@ function App() {
           total={cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)), 0)}
           items={cartItems}
           onBack={() => navigate('/cart')}
-          onPayNow={(method) => { setSelectedPaymentMethod(method || 'Cash on Delivery'); navigate('/paynow'); }}
+          onPayNow={({ paymentMethod, orderType }) => {
+            setSelectedPaymentMethod(paymentMethod || 'Cash');
+            setSelectedOrderType(orderType || 'Dine In');
+            navigate('/paynow');
+          }}
         />
       } />
 
@@ -316,6 +348,7 @@ function App() {
         <PayNow
           total={cartItems.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity ?? 1)), 0) * 1.1}
           paymentMethod={selectedPaymentMethod}
+          orderType={selectedOrderType}
           orderId={cartItems[0]?.order_id}
           customerName={
             userProfile?.full_name ||

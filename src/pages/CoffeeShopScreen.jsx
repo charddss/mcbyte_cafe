@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseclient';
+import Swal from 'sweetalert2';
 
 const CoffeeShopScreen = ({ onOrder, onCart, onProfile, onHistory, onFavorites, onStaffDashboard, onAdminDashboard, cartItemsCount = 0 }) => {
   const [activeCategory, setActiveCategory] = useState('All');
@@ -90,7 +91,7 @@ const CoffeeShopScreen = ({ onOrder, onCart, onProfile, onHistory, onFavorites, 
       const hour = parseInt(hourString, 10);
       let text = 'Good Day ';
 
-      if (hour >= 5 && hour < 12) { 
+      if (hour >= 5 && hour < 12) {
         text = 'Good Morning ';
       } else if (hour >= 12 && hour < 18) {
         text = 'Good Afternoon ';
@@ -110,7 +111,12 @@ const CoffeeShopScreen = ({ onOrder, onCart, onProfile, onHistory, onFavorites, 
       const { data: { user }, error: userError } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        alert('Please log in to add favorites');
+        Swal.fire({
+          icon: 'warning',
+          title: 'Login Required',
+          text: 'Please log in to add favorites',
+          confirmButtonColor: '#92400e',
+        });
         return;
       }
 
@@ -127,6 +133,15 @@ const CoffeeShopScreen = ({ onOrder, onCart, onProfile, onHistory, onFavorites, 
         if (error) throw error;
 
         setFavorites(prev => prev.filter(fav => fav !== id));
+
+        Swal.fire({
+          icon: 'info',
+          title: 'Removed from Favorites',
+          text: 'Item has been removed from your favorites',
+          confirmButtonColor: '#92400e',
+          timer: 1500,
+          showConfirmButton: false,
+        });
       } else {
         // Add to favorites
         const { error } = await supabase
@@ -139,10 +154,24 @@ const CoffeeShopScreen = ({ onOrder, onCart, onProfile, onHistory, onFavorites, 
         if (error) throw error;
 
         setFavorites(prev => [...prev, id]);
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Added to Favorites!',
+          text: 'Item has been added to your favorites',
+          confirmButtonColor: '#92400e',
+          timer: 1500,
+          showConfirmButton: false,
+        });
       }
     } catch (error) {
       console.error('Error toggling favorite:', error);
-      alert('Failed to update favorites. Please try again.');
+      Swal.fire({
+        icon: 'error',
+        title: 'Oops...',
+        text: 'Failed to update favorites. Please try again.',
+        confirmButtonColor: '#92400e',
+      });
     }
   };
 
@@ -690,12 +719,12 @@ const CoffeeShopScreen = ({ onOrder, onCart, onProfile, onHistory, onFavorites, 
                     ...(item.category === 'Hot Drinks'
                       ? { backgroundColor: '#fee2e2', color: '#b91c1c' }
                       : item.category === 'Cold Drinks'
-                      ? { backgroundColor: '#dbeafe', color: '#1d4ed8' }
-                      : item.category === 'Pastries'
-                      ? { backgroundColor: '#fef3c7', color: '#92400e' }
-                      : item.category === 'Meals'
-                      ? { backgroundColor: '#dcfce7', color: '#166534' }
-                      : {}),
+                        ? { backgroundColor: '#dbeafe', color: '#1d4ed8' }
+                        : item.category === 'Pastries'
+                          ? { backgroundColor: '#fef3c7', color: '#92400e' }
+                          : item.category === 'Meals'
+                            ? { backgroundColor: '#dcfce7', color: '#166534' }
+                            : {}),
                   }}
                 >
                   {item.category}

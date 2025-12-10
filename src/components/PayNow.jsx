@@ -3,7 +3,8 @@ import { ChevronLeft, User, Camera, Check } from 'lucide-react';
 
 const PayNow = ({
   total = 0,
-  paymentMethod = 'Cash on Delivery',
+  paymentMethod = 'Cash',
+  orderType = 'Dine In',
   customerName = 'Guest',
   orderId,
   onBack,
@@ -18,6 +19,7 @@ const PayNow = ({
       onPayNow({
         total,
         paymentMethod,
+        orderType,
         captureOnDelivery,
         orderId,
       });
@@ -46,7 +48,7 @@ const PayNow = ({
               ? 'You will pay the rider in cash when your order arrives.'
               : `You selected ${paymentMethod} as your payment method.`}
           </p>
-          
+
           {/* User Info */}
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
@@ -90,11 +92,10 @@ const PayNow = ({
           <div className="flex items-center gap-3 mb-3">
             <button
               onClick={() => setCaptureOnDelivery(!captureOnDelivery)}
-              className={`w-6 h-6 rounded border-2 flex items-center justify-center ${
-                captureOnDelivery
+              className={`w-6 h-6 rounded border-2 flex items-center justify-center ${captureOnDelivery
                   ? 'bg-[#f4a825] border-[#f4a825]'
                   : 'border-gray-300'
-              }`}
+                }`}
             >
               {captureOnDelivery && <Check size={16} className="text-white" />}
             </button>

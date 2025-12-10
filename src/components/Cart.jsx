@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Trash2, Plus, Minus } from 'lucide-react';
 import { supabase } from '../lib/supabaseclient';
+import Swal from 'sweetalert2';
 
 const Cart = ({ items = [], onBack, onCheckout, onUpdateCart }) => {
     const [cartItems, setCartItems] = useState(items);
@@ -49,6 +50,22 @@ const Cart = ({ items = [], onBack, onCheckout, onUpdateCart }) => {
     };
 
     const removeItem = async (targetItem) => {
+        // Show confirmation dialog
+        const result = await Swal.fire({
+            title: 'Remove Item?',
+            text: `Remove ${targetItem.product_name} from your cart?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d97706',
+            cancelButtonColor: '#6b7280',
+            confirmButtonText: 'Yes, remove it',
+            cancelButtonText: 'Cancel'
+        });
+
+        if (!result.isConfirmed) {
+            return; // User cancelled
+        }
+
         try {
             setLoading(true);
             const orderId = targetItem.order_id;
@@ -84,10 +101,23 @@ const Cart = ({ items = [], onBack, onCheckout, onUpdateCart }) => {
                 return updated;
             });
 
-            showToast('Item removed from cart', 'success');
+            // Show success message
+            Swal.fire({
+                icon: 'success',
+                title: 'Removed!',
+                text: 'Item has been removed from your cart',
+                confirmButtonColor: '#d97706',
+                timer: 1500,
+                showConfirmButton: false,
+            });
         } catch (error) {
             console.error('Error removing item:', error);
-            showToast('Failed to remove item', 'error');
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: 'Failed to remove item. Please try again.',
+                confirmButtonColor: '#d97706',
+            });
         } finally {
             setLoading(false);
         }

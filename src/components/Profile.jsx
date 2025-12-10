@@ -143,6 +143,25 @@ const Profile = ({ onBack, onEdit, onLogout, onStaff, onAdmin }) => {
           </div>
 
           <div className="space-y-4 pt-4 border-t border-gray-100">
+            {/* Name (editable) */}
+            <div className="flex items-center gap-3 text-sm">
+              <div className="bg-orange-50 p-2 rounded-lg flex-shrink-0">
+                <User size={18} className="text-orange-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs text-gray-500 mb-1">Full Name</p>
+                <input
+                  type="text"
+                  value={profile.name}
+                  onChange={(e) =>
+                    setProfile((prev) => ({ ...prev, name: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  placeholder="Enter your full name"
+                />
+              </div>
+            </div>
+
             {/* Email (read-only) */}
             <div className="flex items-center gap-3 text-sm">
               <div className="bg-gray-50 p-2 rounded-lg flex-shrink-0">
