@@ -18,12 +18,12 @@
     "react-qr-code": "^2.0.18",
     "react-router-dom": "^7.9.6",
     "recharts": "^3.5.1",
-    "tailwindcss": "^4.1.17"
+    "tailwindcss": "^4.1.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.0.8"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
-    "@types/react-dom": "^18.2.17",
-    "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.8"
+    "@types/react-dom": "^18.2.17"
   }
 }
