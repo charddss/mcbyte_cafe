@@ -1,0 +1,7 @@
+[build]
+  # Ensure devDependencies (vite) are installed during Netlify builds
+  command = "npm ci --include=dev && npm run build"
+  publish = "dist"
+
+[context.production.environment]
+  NODE_ENV = "production"
