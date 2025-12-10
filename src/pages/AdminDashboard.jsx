@@ -17,6 +17,15 @@ const AdminDashboard = ({ onLogout }) => {
     description: '',
     image: ''
   });
+  const [showEditItemModal, setShowEditItemModal] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+  const [editedItem, setEditedItem] = useState({
+    name: '',
+    category: 'Hot Drinks',
+    price: '',
+    description: '',
+    image: ''
+  });
 
   const [users, setUsers] = useState([]);
   const [userFilter, setUserFilter] = useState('all'); // 'all', 'users', 'staff'
@@ -380,6 +389,52 @@ const AdminDashboard = ({ onLogout }) => {
     }
   };
 
+  const openEditItemModal = (item) => {
+    setEditingItem(item);
+    setEditedItem({
+      name: item.name || '',
+      category: item.category || 'Hot Drinks',
+      price:
+        item.price !== undefined && item.price !== null
+          ? String(item.price)
+          : '',
+      description: item.description || '',
+      image: item.image || '',
+    });
+    setShowEditItemModal(true);
+  };
+
+  const handleUpdateProduct = async (e) => {
+    e.preventDefault();
+    if (!editingItem) return;
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          name: editedItem.name,
+          category: editedItem.category,
+          price: parseFloat(editedItem.price),
+          description: editedItem.description,
+          image: editedItem.image,
+        })
+        .eq('id', editingItem.id);
+
+      if (error) throw error;
+
+      setShowEditItemModal(false);
+      setEditingItem(null);
+      await fetchProducts();
+      showToast('Product updated successfully!', 'success');
+    } catch (error) {
+      console.error('Error updating product:', error);
+      showToast('Error updating product: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDeleteMenuItem = async (id) => {
     if (window.confirm('Are you sure you want to delete this menu item?')) {
       try {
@@ -617,6 +672,10 @@ const AdminDashboard = ({ onLogout }) => {
     : todayProductCounts;
   const hasAnyTodayProducts = todayProductCounts.length > 0;
 
+  const filteredMenuItems = menuItems.filter((item) =>
+    menuFilter === 'all' ? true : item.category === menuFilter
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-yellow-50/50 to-orange-50">
       {/* Header */}
@@ -686,6 +745,132 @@ const AdminDashboard = ({ onLogout }) => {
           </button>
         </div>
       </div>
+
+      {activeTab === 'menu' && (
+        <div className="px-6 py-4 space-y-4 pb-24">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-800">Menu Management</h2>
+            <button
+              type="button"
+              onClick={() => setShowAddModal(true)}
+              className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 py-2 rounded-xl font-semibold hover:from-orange-600 hover:to-orange-700 transition-all shadow-lg flex items-center gap-2"
+            >
+              <Plus size={18} />
+              Add Item
+            </button>
+          </div>
+
+          <div className="flex gap-2 bg-white rounded-2xl p-2 shadow-lg overflow-x-auto mb-4">
+            <button
+              onClick={() => setMenuFilter('all')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${menuFilter === 'all'
+                ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setMenuFilter('Hot Drinks')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${menuFilter === 'Hot Drinks'
+                ? 'bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Hot Drinks
+            </button>
+            <button
+              onClick={() => setMenuFilter('Cold Drinks')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${menuFilter === 'Cold Drinks'
+                ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Cold Drinks
+            </button>
+            <button
+              onClick={() => setMenuFilter('Pastries')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${menuFilter === 'Pastries'
+                ? 'bg-gradient-to-r from-yellow-500 to-yellow-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Pastries
+            </button>
+            <button
+              onClick={() => setMenuFilter('Meals')}
+              className={`flex-1 py-2 px-4 rounded-xl font-semibold transition-all duration-200 whitespace-nowrap text-sm ${menuFilter === 'Meals'
+                ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-lg'
+                : 'text-gray-600 hover:bg-gray-50'
+                }`}
+            >
+              Meals
+            </button>
+          </div>
+
+          {isLoading ? (
+            <div className="flex justify-center items-center py-10 text-gray-500 gap-2">
+              <Loader2 className="animate-spin" size={20} />
+              <span>Loading menu items...</span>
+            </div>
+          ) : filteredMenuItems.length === 0 ? (
+            <div className="text-center py-10 text-gray-500">
+              No items found for this category.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {filteredMenuItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="bg-white rounded-3xl p-4 shadow-xl hover:shadow-2xl transition-all duration-200 border-2 border-white/50 flex flex-col gap-3"
+                >
+                  <div className="flex gap-3">
+                    {item.image ? (
+                      <img
+                        src={item.image}
+                        alt={item.name}
+                        className="w-20 h-20 rounded-2xl object-cover border border-gray-100"
+                      />
+                    ) : (
+                      <div className="w-20 h-20 rounded-2xl bg-orange-50 flex items-center justify-center border border-dashed border-orange-200">
+                        <Coffee size={24} className="text-orange-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-bold text-gray-900 text-sm truncate">{item.name}</h3>
+                          <p className="text-[11px] text-gray-500 truncate">{item.category}</p>
+                        </div>
+                        <p className="text-sm font-bold text-orange-600 whitespace-nowrap">
+                          ₱ {Number(item.price || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      {item.description && (
+                        <p className="mt-1 text-xs text-gray-600 line-clamp-2">{item.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-1">
+                    <button
+                      onClick={() => openEditItemModal(item)}
+                      className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-all hover:scale-110"
+                    >
+                      <Edit size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMenuItem(item.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all hover:scale-110"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Analytics Tab */}
       {activeTab === 'analytics' && (
@@ -1365,6 +1550,92 @@ const AdminDashboard = ({ onLogout }) => {
                 className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3 rounded-xl font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-4"
               >
                 {isLoading ? 'Adding...' : 'Add Item'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {showEditItemModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900">Edit Item</h2>
+              <button
+                onClick={() => setShowEditItemModal(false)}
+                type="button"
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={24} className="text-gray-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProduct} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedItem.name}
+                  onChange={(e) => setEditedItem({ ...editedItem, name: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedItem.category}
+                  onChange={(e) => setEditedItem({ ...editedItem, category: e.target.value })}
+                >
+                  <option value="Hot Drinks">Hot Drinks</option>
+                  <option value="Cold Drinks">Cold Drinks</option>
+                  <option value="Pastries">Pastries</option>
+                  <option value="Meals">Meals</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Price (₱)</label>
+                <input
+                  type="number"
+                  required
+                  min="0"
+                  step="0.01"
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedItem.price}
+                  onChange={(e) => setEditedItem({ ...editedItem, price: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  rows="3"
+                  value={editedItem.description}
+                  onChange={(e) => setEditedItem({ ...editedItem, description: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+                <input
+                  type="url"
+                  className="w-full px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  value={editedItem.image}
+                  onChange={(e) => setEditedItem({ ...editedItem, image: e.target.value })}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white py-3 rounded-xl font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+              >
+                {isLoading ? 'Saving...' : 'Save Changes'}
               </button>
             </form>
           </div>
